@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { parse } from 'csv-parse';
 import { PrismaClient, Segment, PaymentMethod, InvoiceStatus } from '@prisma/client';
+import { calculateInvoiceRiskScore } from '@/services/risk-scorer';
 
 const prisma = new PrismaClient();
 
@@ -94,7 +95,14 @@ async function main() {
     }
 
     // 2. Calcula o Score de Risco da fatura
-    const riskScore = calculateRiskScore(row);
+    const riskScore = calculateInvoiceRiskScore({
+      daysOverdue: 0, // Você pode adicionar lógica para calcular isso com base em row.dueDate e row.paidDate
+      previousLateInvoices: parseInt(row.previousLateInvoices, 10),
+      attempts: parseInt(row.attempts, 10),
+      customerSegment: row.customerSegment as 'SMB' | 'MID' | 'ENT' | string,
+      openBalance: parseFloat(row.openBalance),
+      creditLimit: parseFloat(row.creditLimit)
+    });
 
     // 3. Define o status inicial da fatura (Se tem paidDate preenchido no CSV, já está PAID, senão OPEN)
     const initialStatus: InvoiceStatus = row.paidDate && row.paidDate !== 'null' && row.paidDate !== '' 

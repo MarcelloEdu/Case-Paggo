@@ -1,25 +1,25 @@
 'use client';
 
-import { useState } from 'react';
+import { useInvoiceState } from '@/hooks/use-invoice-state';
 import InvoiceDrawer from './invoice-drawer';
-import { InvoiceStatus } from '@prisma/client';
 
 interface InvoiceTableProps {
   initialInvoices: any[];
 }
 
 export default function InvoiceTable({ initialInvoices }: InvoiceTableProps) {
-  const [invoices, setInvoices] = useState(initialInvoices);
-  const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
-
-  const handleStatusUpdated = (id: string, nextStatus: InvoiceStatus) => {
-    setInvoices(prev => prev.map(inv => inv.id === id ? { ...inv, status: nextStatus } : inv));
-    setSelectedInvoice(prev => prev && prev.id === id ? { ...prev, status: nextStatus } : prev);
-  };
+  // Toda a lógica e inteligência de estado agora vêm do nosso Custom Hook!
+  const {
+    invoices,
+    selectedInvoice,
+    selectInvoice,
+    closeDrawer,
+    handleStatusUpdate
+  } = useInvoiceState({ initialInvoices });
 
   return (
     <div className="flex w-full gap-6 items-start">
-      {/* SEÇÃO DA TABELA */}
+      {/* TABELA DE FATURAS */}
       <div className="flex-1 bg-white rounded-xl border shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm text-slate-600">
@@ -37,7 +37,7 @@ export default function InvoiceTable({ initialInvoices }: InvoiceTableProps) {
               {invoices.map((inv) => (
                 <tr 
                   key={inv.id} 
-                  onClick={() => setSelectedInvoice(inv)}
+                  onClick={() => selectInvoice(inv)}
                   className={`transition-colors cursor-pointer ${
                     selectedInvoice?.id === inv.id ? 'bg-indigo-50/40 font-medium' : 'hover:bg-slate-50/80'
                   }`}
@@ -58,9 +58,9 @@ export default function InvoiceTable({ initialInvoices }: InvoiceTableProps) {
                     </span>
                   </td>
                   <td className="px-6 py-4">
-                    <span className={`px-2.5 py-1 text-xs font-semibold rounded-lg ${
-                      inv.status === 'PAID' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
-                    }`}>{inv.status}</span>
+                    <span className={`px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700`}>
+                      {inv.status}
+                    </span>
                   </td>
                 </tr>
               ))}
@@ -69,12 +69,12 @@ export default function InvoiceTable({ initialInvoices }: InvoiceTableProps) {
         </div>
       </div>
 
-      {/* SEÇÃO DO DRAWER COMPACTO À DIREITA */}
+      {/* PAINEL LATERAL DIREITO (DRAWER) */}
       {selectedInvoice && (
         <InvoiceDrawer 
           invoice={selectedInvoice} 
-          onClose={() => setSelectedInvoice(null)} 
-          onStatusUpdated={handleStatusUpdated}
+          onClose={closeDrawer} 
+          onStatusUpdated={(id, nextStatus) => handleStatusUpdate(id, nextStatus)}
         />
       )}
     </div>
