@@ -1,0 +1,176 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==========================================
+// ENUMS
+// ==========================================
+
+enum Segment {
+  SMB
+  MID
+  ENT
+}
+
+enum InvoiceStatus {
+  OPEN
+  IN_NEGOTIATION
+  AGREEMENT_SIGNED
+  PAID
+  DISPUTED
+  WRITTEN_OFF
+}
+
+enum PaymentMethod {
+  BOLETO
+  PIX
+  CREDIT_CARD
+  BANK_TRANSFER
+}
+
+enum Origin {
+  ANALYST
+  AI_AGENT
+}
+
+enum FollowUpStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+// ==========================================
+// MODELOS
+// ==========================================
+
+model Customer {
+  id                   String     @id @default(uuid())
+  name                 String
+  segment              Segment
+  creditLimit          Decimal    @db.Decimal(12, 2)
+  openBalance          Decimal    @db.Decimal(12, 2)
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+
+  // Relacionamentos
+  invoices             Invoice[]
+  notes                Note[]
+  followUps            FollowUp[]
+  auditLogs            AuditLog[]
+
+  @@map("customers")
+}
+
+model Invoice {
+  id                   String        @id // Usaremos o próprio ID vindo do CSV
+  customerId           String
+  issueDate            DateTime
+  dueDate              DateTime
+  paidDate             DateTime?
+  amount               Decimal       @db.Decimal(12, 2)
+  amountPaid           Decimal       @db.Decimal(12, 2) @default(0.00)
+  paymentMethod        PaymentMethod
+  attempts             Int           @default(0)
+  previousLateInvoices Int           @default(0)
+  status               InvoiceStatus @default(OPEN)
+  riskScore            Int           @default(0) // Regra de bônus: Score de 0 a 100
+  isFalsePositive      Boolean       @default(false) // Feedback human-in-the-loop
+
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  // Relacionamentos
+  customer             Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  paymentAgreement     PaymentAgreement?
+  notes                Note[]
+  followUps            FollowUp[]
+  auditLogs            AuditLog[]
+
+  @@map("invoices")
+}
+
+model PaymentAgreement {
+  id                String        @id @default(uuid())
+  invoiceId         String        @unique // Relacionamento 1:1 com a fatura original
+  totalAmount       Decimal       @db.Decimal(12, 2)
+  installmentsCount Int
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  // Relacionamentos
+  invoice           Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  installments      Installment[]
+
+  @@map("payment_agreements")
+}
+
+model Installment {
+  id                String    @id @default(uuid())
+  agreementId       String
+  installmentNumber Int
+  dueDate           DateTime
+  amount            Decimal   @db.Decimal(12, 2)
+  status            String    @default("PENDING") // PENDING ou PAID
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relacionamentos
+  agreement         PaymentAgreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+
+  @@map("installments")
+}
+
+model Note {
+  id         String   @id @default(uuid())
+  invoiceId  String?  // Opcional se a nota for geral para o cliente
+  customerId String
+  content    String   @db.Text
+  createdBy  Origin
+  createdAt  DateTime @default(now())
+
+  // Relacionamentos
+  invoice    Invoice?  @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@map("notes")
+}
+
+model FollowUp {
+  id           String         @id @default(uuid())
+  invoiceId    String?
+  customerId   String
+  scheduledFor DateTime
+  channel      String         // ex: "Telefone", "E-mail"
+  status       FollowUpStatus @default(PENDING)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  // Relacionamentos
+  invoice      Invoice?        @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  customer     Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@map("follow_ups")
+}
+
+model AuditLog {
+  id            String   @id @default(uuid())
+  invoiceId     String?
+  customerId    String?
+  action        String   // ex: "STATUS_CHANGE", "AGREEMENT_CREATED"
+  previousValue String?  @db.Text // JSON stringificado do estado anterior
+  newValue      String?  @db.Text // JSON stringificado do novo estado
+  origin        Origin
+  reason        String?  @db.Text // Justificativa (especialmente útil para ações da IA)
+  createdAt     DateTime @default(now())
+
+  // Relacionamentos
+  invoice       Invoice?  @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  customer      Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+}
