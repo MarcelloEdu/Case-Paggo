@@ -1,0 +1,247 @@
+.panel {
+  margin-top: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.search {
+  flex: 1 1 220px;
+  min-width: 180px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  font-family: inherit;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+.search:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: var(--surface);
+}
+
+.pillGroup {
+  display: flex;
+  gap: 6px;
+}
+
+.pill {
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--ink-muted);
+  border-radius: var(--radius-sm);
+  padding: 6px 11px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.pill[aria-pressed='true'] {
+  background: var(--primary-wash);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.select {
+  padding: 6px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  font-family: inherit;
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.riskToggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+table.table {
+  width: 100%;
+  min-width: 780px;
+}
+
+.table thead th {
+  text-align: left;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink-faint);
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.sortable {
+  cursor: pointer;
+}
+
+.sortable:hover {
+  color: var(--ink-muted);
+}
+
+.table tbody td {
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13.5px;
+  vertical-align: middle;
+}
+
+.row {
+  cursor: pointer;
+}
+
+.row:hover td {
+  background: var(--bg);
+}
+
+.row[data-selected='true'] td {
+  background: var(--primary-wash);
+}
+
+.customerCell strong {
+  display: block;
+  font-weight: 500;
+}
+
+.customerCell span {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.statusCell {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--ink-faint);
+}
+
+.dot[data-tone='critical'] {
+  background: var(--critical);
+}
+.dot[data-tone='warning'] {
+  background: var(--warning);
+}
+.dot[data-tone='positive'] {
+  background: var(--positive);
+}
+
+.riskCell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.riskBar {
+  width: 44px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.riskBarFill {
+  height: 100%;
+  border-radius: 3px;
+}
+
+.riskBarFill[data-tone='critical'] {
+  background: var(--critical);
+}
+.riskBarFill[data-tone='warning'] {
+  background: var(--warning);
+}
+.riskBarFill[data-tone='positive'] {
+  background: var(--positive);
+}
+
+.riskScore {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-muted);
+  width: 22px;
+}
+
+.overdueDays {
+  color: var(--critical);
+  font-size: 11.5px;
+  margin-left: 6px;
+}
+
+.empty {
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--ink-muted);
+}
+
+.empty strong {
+  display: block;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 16px;
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  font-size: 12.5px;
+  color: var(--ink-muted);
+}
+
+.pageButtons {
+  display: flex;
+  gap: 6px;
+}
+
+.pageButtons button {
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  font-size: 12.5px;
+  cursor: pointer;
+  color: var(--ink);
+}
+
+.pageButtons button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.loadingRow td {
+  color: var(--ink-faint);
+  text-align: center;
+  padding: 20px;
+}

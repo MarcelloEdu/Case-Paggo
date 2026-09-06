@@ -1,104 +1,34 @@
-'use client';
+import type { DashboardSummary } from '@/app/actions/invoice-actions';
+import { formatCurrency } from '@/lib/utils';
+import styles from './dashboard-kpis.module.css';
 
-interface DashboardKpisProps {
-  stats: {
-    totalOverdue: number;
-    atRiskCount: number;
-    recoveryRate: number;
-    dso: number;
-  };
-}
-
-export default function DashboardKpis({ stats }: DashboardKpisProps) {
-  // Formata os valores monetários para a moeda local BRL (R$)
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('pt-BR', {
-      style: 'currency',
-      currency: 'BRL',
-    }).format(value);
-  };
+export function DashboardKpis({ summary }: { summary: DashboardSummary }) {
+  const delinquencyPct = (summary.delinquencyRate * 100).toFixed(1);
 
   return (
-    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4 mb-8">
-      {/* CARD 1: TOTAL OVERDUE */}
-      <div className="bg-white p-6 rounded-xl border shadow-sm flex flex-col justify-between transition-all hover:shadow-md">
-        <div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              Total Overdue
-            </span>
-            <span className="text-lg">💰</span>
-          </div>
-          <div className="text-2xl font-bold text-slate-900 mt-2 tracking-tight">
-            {formatCurrency(stats.totalOverdue)}
-          </div>
-        </div>
-        <div className="mt-4 flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
-          <span>↓ 4.2%</span>
-          <span className="text-slate-400">vs o mês anterior</span>
-        </div>
+    <div className={styles.strip}>
+      <div className={styles.segment}>
+        <p className={styles.label}>Em aberto</p>
+        <div className={styles.value}>{formatCurrency(summary.outstandingAmount)}</div>
+        <p className={styles.subvalue}>{summary.totalCount - summary.paidCount} faturas não quitadas</p>
       </div>
 
-      {/* CARD 2: DSO (DAYS SALES OUTSTANDING) */}
-      <div className="bg-white p-6 rounded-xl border shadow-sm flex flex-col justify-between transition-all hover:shadow-md">
-        <div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              DSO (Sales Outstanding)
-            </span>
-            <span className="text-lg">⏱️</span>
-          </div>
-          <div className="text-2xl font-bold text-slate-900 mt-2 tracking-tight">
-            {stats.dso} dias
-          </div>
-        </div>
-        <div className="mt-4 flex items-center gap-1.5 text-xs text-amber-600 font-medium">
-          <span>↑ 1.5 dias</span>
-          <span className="text-slate-400">de variação na carteira</span>
-        </div>
+      <div className={styles.segment} data-tone="critical">
+        <p className={styles.label}>Vencido</p>
+        <div className={styles.value}>{formatCurrency(summary.overdueAmount)}</div>
+        <p className={styles.subvalue}>{summary.overdueCount} faturas passaram do vencimento</p>
       </div>
 
-      {/* CARD 3: INVOICES AT RISK */}
-      <div className="bg-white p-6 rounded-xl border shadow-sm flex flex-col justify-between transition-all hover:shadow-md">
-        <div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              Invoices at Risk
-            </span>
-            <span className="text-lg">⚠️</span>
-          </div>
-          <div className="text-2xl font-bold text-red-600 mt-2 tracking-tight">
-            {stats.atRiskCount} contas
-          </div>
-        </div>
-        <div className="mt-4 flex items-center gap-1 text-xs text-slate-400">
-          <span className="font-semibold text-red-500">Ação imediata:</span>
-          <span>Score Risco &gt;= 70</span>
-        </div>
+      <div className={styles.segment} data-tone="warning">
+        <p className={styles.label}>Alto risco</p>
+        <div className={styles.value}>{summary.highRiskCount}</div>
+        <p className={styles.subvalue}>faturas com score ≥ 70 ainda em aberto</p>
       </div>
 
-      {/* CARD 4: RECOVERY RATE */}
-      <div className="bg-white p-6 rounded-xl border shadow-sm flex flex-col justify-between transition-all hover:shadow-md">
-        <div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              Recovery Rate
-            </span>
-            <span className="text-lg">📈</span>
-          </div>
-          <div className="text-2xl font-bold text-slate-900 mt-2 tracking-tight">
-            {stats.recoveryRate.toFixed(1)}%
-          </div>
-        </div>
-        <div className="mt-4 w-full">
-          {/* Barra de progresso baseada no valor real vindo do banco */}
-          <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-            <div 
-              className="bg-indigo-600 h-full rounded-full transition-all duration-500" 
-              style={{ width: `${stats.recoveryRate}%` }}
-            ></div>
-          </div>
-        </div>
+      <div className={styles.segment}>
+        <p className={styles.label}>Taxa de inadimplência</p>
+        <div className={styles.value}>{delinquencyPct}%</div>
+        <p className={styles.subvalue}>sobre o total de {summary.totalCount} faturas</p>
       </div>
     </div>
   );

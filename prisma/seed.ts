@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { parse } from 'csv-parse';
 import { PrismaClient, Segment, PaymentMethod, InvoiceStatus } from '@prisma/client';
-import { calculateInvoiceRiskScore } from '@/services/risk-scorer';
+import { calculateInvoiceRiskScore } from '../src/services/risk-scorer';
 
 const prisma = new PrismaClient();
 

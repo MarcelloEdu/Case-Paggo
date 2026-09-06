@@ -1,91 +1,111 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { InvoiceStatus } from '@prisma/client';
-import { updateInvoiceStatus, addInvoiceNote } from '@/app/actions/invoice-actions';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { InvoiceStatus, Segment } from '@prisma/client';
+import type { InvoiceListItem } from '@/app/actions/invoice-actions';
 
-interface UseInvoiceStateProps {
-  initialInvoices: any[];
+export interface InvoiceFiltersState {
+  status: InvoiceStatus | 'ALL';
+  segment: Segment | 'ALL';
+  search: string;
+  highRiskOnly: boolean;
+  sortBy: 'dueDate' | 'amount' | 'riskScore';
+  sortDir: 'asc' | 'desc';
+  page: number;
 }
 
-export function useInvoiceState({ initialInvoices }: UseInvoiceStateProps) {
-  const [invoices, setInvoices] = useState<any[]>(initialInvoices);
-  const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
-  
-  // Estados para Filtro e Busca
-  const [searchTerm, setSearchTerm] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'ALL' | 'OPEN' | 'IN_NEGOTIATION' | 'DISPUTED'>('ALL');
+const DEFAULT_FILTERS: InvoiceFiltersState = {
+  status: 'ALL',
+  segment: 'ALL',
+  search: '',
+  highRiskOnly: false,
+  sortBy: 'dueDate',
+  sortDir: 'asc',
+  page: 1,
+};
 
-  // Filtra as faturas dinamicamente usando useMemo para performance
-  const filteredInvoices = useMemo(() => {
-    return invoices.filter(inv => {
-      // 1. Filtro por Aba/Status
-      if (activeFilter === 'OPEN' && inv.status !== 'OPEN') return false;
-      if (activeFilter === 'IN_NEGOTIATION' && inv.status !== 'IN_NEGOTIATION') return false;
-      if (activeFilter === 'DISPUTED' && inv.status !== 'DISPUTED') return false;
+const PAGE_SIZE = 25;
 
-      // 2. Filtro por Input de Texto (ID ou Nome do Cliente)
-      const matchesId = inv.id.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesName = inv.customer.name.toLowerCase().includes(searchTerm.toLowerCase());
+interface UseInvoiceStateOptions {
+  initialInvoices: InvoiceListItem[];
+  initialTotal: number;
+}
 
-      return matchesId || matchesName;
-    });
-  }, [invoices, searchTerm, activeFilter]);
+export function useInvoiceState({ initialInvoices, initialTotal }: UseInvoiceStateOptions) {
+  const [filters, setFiltersState] = useState<InvoiceFiltersState>(DEFAULT_FILTERS);
+  const [invoices, setInvoices] = useState<InvoiceListItem[]>(initialInvoices);
+  const [total, setTotal] = useState(initialTotal);
+  const [loading, setLoading] = useState(false);
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
+  const isFirstRender = useRef(true);
 
-  const selectInvoice = (invoice: any) => {
-    setSelectedInvoice(invoice);
-  };
+  const fetchInvoices = useCallback(async (nextFilters: InvoiceFiltersState) => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (nextFilters.status !== 'ALL') params.set('status', nextFilters.status);
+    if (nextFilters.segment !== 'ALL') params.set('segment', nextFilters.segment);
+    if (nextFilters.search.trim()) params.set('search', nextFilters.search.trim());
+    if (nextFilters.highRiskOnly) params.set('minRisk', '70');
+    params.set('sortBy', nextFilters.sortBy);
+    params.set('sortDir', nextFilters.sortDir);
+    params.set('page', String(nextFilters.page));
+    params.set('pageSize', String(PAGE_SIZE));
 
-  const closeDrawer = () => {
-    setSelectedInvoice(null);
-  };
-
-  const handleStatusUpdate = async (invoiceId: string, nextStatus: InvoiceStatus) => {
-    const reason = prompt(`Por que está mudando o status da fatura ${invoiceId}?`);
-    if (reason === null) return false;
-
-    const res = await updateInvoiceStatus({
-      invoiceId,
-      nextStatus,
-      origin: 'ANALYST',
-      reason: reason || 'Alteração manual via painel do analista.'
-    });
-
-    if (res.success) {
-      setInvoices(prev =>
-        prev.map(inv => (inv.id === invoiceId ? { ...inv, status: nextStatus } : inv))
-      );
-      setSelectedInvoice(prev =>
-        prev && prev.id === invoiceId ? { ...prev, status: nextStatus } : prev
-      );
-      return true;
-    } else {
-      alert(`Erro na validação do estado: ${res.error}`);
-      return false;
+    try {
+      const res = await fetch(`/api/invoices?${params.toString()}`);
+      const data = await res.json();
+      if (res.ok) {
+        setInvoices(data.invoices);
+        setTotal(data.total);
+      }
+    } finally {
+      setLoading(false);
     }
-  };
+  }, []);
 
-  const handleAddNote = async (invoiceId: string, customerId: string, content: string) => {
-    if (!content.trim()) return false;
-    const res = await addInvoiceNote({ invoiceId, customerId, content, origin: 'ANALYST' });
-    if (res.success) {
-      alert('Nota interna registrada!');
-      return true;
+  // Refetch a cada mudança de filtro (com debounce leve para o campo de busca).
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
     }
-    return false;
-  };
+    const handle = setTimeout(() => fetchInvoices(filters), filters.search ? 300 : 0);
+    return () => clearTimeout(handle);
+  }, [filters, fetchInvoices]);
+
+  const updateFilters = useCallback((partial: Partial<InvoiceFiltersState>) => {
+    setFiltersState((prev) => ({
+      ...prev,
+      ...partial,
+      // qualquer mudança de filtro (exceto paginação) volta para a página 1
+      page: partial.page !== undefined ? partial.page : 1,
+    }));
+  }, []);
+
+  const toggleSort = useCallback((column: InvoiceFiltersState['sortBy']) => {
+    setFiltersState((prev) => ({
+      ...prev,
+      sortBy: column,
+      sortDir: prev.sortBy === column && prev.sortDir === 'asc' ? 'desc' : 'asc',
+      page: 1,
+    }));
+  }, []);
+
+  const refresh = useCallback(() => fetchInvoices(filters), [fetchInvoices, filters]);
+
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total]);
 
   return {
-    invoices: filteredInvoices, // Retorna a lista já filtrada para o componente!
-    allInvoicesCount: invoices.length,
-    selectedInvoice,
-    searchTerm,
-    setSearchTerm,
-    activeFilter,
-    setActiveFilter,
-    selectInvoice,
-    closeDrawer,
-    handleStatusUpdate,
-    handleAddNote
+    filters,
+    updateFilters,
+    toggleSort,
+    invoices,
+    total,
+    totalPages,
+    loading,
+    refresh,
+    selectedInvoiceId,
+    openInvoice: setSelectedInvoiceId,
+    closeInvoice: () => setSelectedInvoiceId(null),
   };
 }

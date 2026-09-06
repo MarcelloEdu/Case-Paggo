@@ -1,230 +1,298 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { InvoiceStatus } from '@prisma/client';
-import { updateInvoiceStatus, addInvoiceNote } from '@/app/actions/invoice-actions';
-import { createPaymentAgreement } from '@/app/actions/agreement-actions';
-import { STATUS_LABELS } from '@/services/state-machine';
+import { useEffect, useState } from 'react';
+import type { InvoiceStatus, Origin } from '@prisma/client';
+import {
+  getInvoiceDetail,
+  updateInvoiceStatus,
+  addInvoiceNote,
+  VALID_TRANSITIONS,
+  type InvoiceDetail,
+} from '@/app/actions/invoice-actions';
+import {
+  STATUS_LABELS,
+  SEGMENT_LABELS,
+  PAYMENT_METHOD_LABELS,
+  formatCurrency,
+  formatDate,
+  riskBand,
+} from '@/lib/utils';
+import styles from './invoice-drawer.module.css';
+
+const MAIN_SEQUENCE: InvoiceStatus[] = ['OPEN', 'IN_NEGOTIATION', 'AGREEMENT_SIGNED', 'PAID'];
 
 interface InvoiceDrawerProps {
-  invoice: any;
+  invoiceId: string | null;
   onClose: () => void;
-  onStatusUpdated: (id: string, nextStatus: InvoiceStatus) => void;
+  onUpdated: () => void;
 }
 
-export default function InvoiceDrawer({ invoice, onClose, onStatusUpdated }: InvoiceDrawerProps) {
-  const [activeTab, setActiveTab] = useState<'details' | 'ai'>('details');
+export function InvoiceDrawer({ invoiceId, onClose, onUpdated }: InvoiceDrawerProps) {
+  const [detail, setDetail] = useState<InvoiceDetail | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [submittingStatus, setSubmittingStatus] = useState<string | null>(null);
   const [noteContent, setNoteContent] = useState('');
-  const [installments, setInstallments] = useState(3);
-  
-  // Estados para o Chat de IA
-  const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant', text: string }>>([]);
-  const [inputMessage, setInputMessage] = useState('');
-  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [submittingNote, setSubmittingNote] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Reinicializa o chat de IA contextualizado com a fatura atual toda vez que trocar de linha selecionada
   useEffect(() => {
-    setNoteContent('');
-    setMessages([
-      { 
-        role: 'assistant', 
-        text: `Olá! Sou o assistente de cobrança da Paggo. Estou analisando o histórico e o score de risco (${invoice.riskScore}/100) de ${invoice.customer.name}. Posso redigir e-mails, estruturar propostas de parcelamento ou simular liquidações. Como posso ajudar?` 
-      }
-    ]);
-  }, [invoice.id]);
-
-    const handleStatusChange = async (nextStatus: InvoiceStatus) => {
-        // Chama o tratador central do Hook. Ele vai rodar o prompt e a validação!
-        onStatusUpdated(invoice.id, nextStatus);
-    };
-  const handleAddNote = async () => {
-    if (!noteContent.trim()) return;
-    const res = await addInvoiceNote({
-      invoiceId: invoice.id,
-      customerId: invoice.customerId,
-      content: noteContent,
-      origin: 'ANALYST'
-    });
-
-    if (res.success) {
-      alert('Nota interna anexada com sucesso!');
-      setNoteContent('');
+    if (!invoiceId) {
+      setDetail(null);
+      return;
     }
-  };
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    getInvoiceDetail(invoiceId)
+      .then((result) => {
+        if (!cancelled) setDetail(result);
+      })
+      .catch(() => {
+        if (!cancelled) setError('Não foi possível carregar os detalhes da fatura.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [invoiceId]);
 
-  const handleSendAiMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inputMessage.trim() || isAiLoading) return;
+  async function refetchDetail() {
+    if (!invoiceId) return;
+    const result = await getInvoiceDetail(invoiceId);
+    setDetail(result);
+  }
 
-    const userText = inputMessage;
-    setMessages(prev => [...prev, { role: 'user', text: userText }]);
-    setInputMessage('');
-    setIsAiLoading(true);
+  async function handleStatusChange(nextStatus: InvoiceStatus) {
+    if (!invoiceId) return;
+    setSubmittingStatus(nextStatus);
+    setError(null);
+    const result = await updateInvoiceStatus({
+      invoiceId,
+      nextStatus,
+      origin: 'ANALYST' as Origin,
+    });
+    setSubmittingStatus(null);
+    if (result.success) {
+      await refetchDetail();
+      onUpdated();
+    } else {
+      setError(result.error || 'Não foi possível atualizar o status.');
+    }
+  }
 
-    // Mock realista temporário antes da conexão com a API de streaming do Gemini
-    setTimeout(() => {
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        text: `Compreendido. Com base nos dados, a empresa opera no segmento [${invoice.customer.segment}] com limite de R$ ${Number(invoice.customer.creditLimit).toLocaleString('pt-BR')}. Recomendo formalizar a tentativa de contato aplicando a transição para 'Em Negociação' e fracionar o saldo em 3 parcelas.` 
-      }]);
-      setIsAiLoading(false);
-    }, 1000);
-  };
+  async function handleAddNote() {
+    if (!invoiceId || !detail || !noteContent.trim()) return;
+    setSubmittingNote(true);
+    setError(null);
+    const result = await addInvoiceNote({
+      invoiceId,
+      customerId: detail.customerId,
+      content: noteContent.trim(),
+      origin: 'ANALYST' as Origin,
+    });
+    setSubmittingNote(false);
+    if (result.success) {
+      setNoteContent('');
+      await refetchDetail();
+    } else {
+      setError(result.error || 'Não foi possível salvar a nota.');
+    }
+  }
 
-  // Resgata o label traduzido e a cor semafórica vinda direto do arquivo de serviço centralizado
-  const statusConfig = STATUS_LABELS[invoice.status as InvoiceStatus] || { label: invoice.status, color: 'bg-slate-100 text-slate-700' };
+  if (!invoiceId) return null;
 
   return (
-    <div className="w-full md:w-[450px] bg-white border-l shadow-2xl flex flex-col h-[calc(100vh-140px)] sticky top-24 rounded-xl overflow-hidden animate-in slide-in-from-right duration-200">
-      {/* CABEÇALHO DO PAINEL */}
-      <div className="p-6 border-b bg-slate-50/50 flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-sm font-bold text-indigo-600">{invoice.id}</span>
-            <span className={`px-2.5 py-0.5 text-xs font-semibold rounded-md border ${statusConfig.color}`}>
-              {statusConfig.label}
-            </span>
-          </div>
-          <h3 className="font-bold text-slate-900 text-lg mt-1 truncate max-w-[280px]">{invoice.customer.name}</h3>
-        </div>
-        <button onClick={onClose} className="text-slate-400 hover:text-slate-600 bg-white border p-2 rounded-lg shadow-sm transition-colors text-sm">
-          ✕
-        </button>
-      </div>
+    <>
+      <div className={styles.backdrop} onClick={onClose} />
+      <div className={styles.drawer} role="dialog" aria-label="Detalhes da fatura">
+        {loading && !detail && <div className={styles.loadingState}>Carregando fatura…</div>}
+        {error && !detail && <div className={styles.errorState}>{error}</div>}
 
-      {/* ABAS DO PAINEL */}
-      <div className="flex border-b text-sm font-medium px-6 bg-white">
-        <button 
-          onClick={() => setActiveTab('details')}
-          className={`py-3 px-2 border-b-2 transition-colors ${activeTab === 'details' ? 'border-indigo-600 text-indigo-600 font-bold' : 'border-transparent text-slate-500'}`}
-        >
-          Ações & Histórico
-        </button>
-        <button 
-          onClick={() => setActiveTab('ai')}
-          className={`py-3 px-2 border-b-2 transition-colors flex items-center gap-1.5 ${activeTab === 'ai' ? 'border-indigo-600 text-indigo-600 font-bold' : 'border-transparent text-slate-500'}`}
-        >
-          Copilot de IA ✨
-        </button>
-      </div>
-
-      {/* CONTEÚDO DO CORPO */}
-      <div className="flex-1 overflow-y-auto p-6 bg-white space-y-6">
-        
-        {activeTab === 'details' && (
+        {detail && (
           <>
-            {/* Bloco 1: Gatilhos Manuais da Máquina de Estados */}
-            <div>
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Alterar Status Manualmente</h4>
-              <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => handleStatusChange('IN_NEGOTIATION')} className="px-3 py-2 border rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200 transition-colors">Em Negociação</button>
-                <button onClick={() => handleStatusChange('DISPUTED')} className="px-3 py-2 border rounded-lg text-xs font-semibold bg-purple-50 text-purple-700 hover:bg-purple-100 border-purple-200 transition-colors">Contestar (Dispute)</button>
-                <button onClick={() => handleStatusChange('PAID')} className="px-3 py-2 border rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200 transition-colors">Marcar como Pago</button>
-                <button onClick={() => handleStatusChange('WRITTEN_OFF')} className="px-3 py-2 border rounded-lg text-xs font-semibold bg-slate-50 text-slate-700 hover:bg-slate-100 border-slate-200 transition-colors">Dar Baixa (Prejuízo)</button>
+            <div className={styles.header}>
+              <div>
+                <p className={styles.headerId}>{detail.id}</p>
+                <h3 className={styles.headerName}>{detail.customer.name}</h3>
               </div>
-            </div>
-
-            {/* Bloco 2: Campo de Anotações Internas */}
-            <div className="border-t pt-4">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Adicionar Nota de Registro</h4>
-              <textarea 
-                value={noteContent}
-                onChange={(e) => setNoteContent(e.target.value)}
-                placeholder="Ex: Cliente informou que houve um desalinhamento de fluxo de caixa, mas se comprometeu a liquidar até o dia 10..."
-                className="w-full border rounded-xl p-3 text-xs focus:ring-2 focus:ring-indigo-500 bg-slate-50/50 outline-none resize-none"
-                rows={3}
-              />
-              <button onClick={handleAddNote} className="mt-2 w-full bg-slate-900 hover:bg-slate-800 text-white font-medium text-xs py-2 rounded-lg transition-colors shadow-sm">
-                Salvar Nota
+              <button type="button" className={styles.closeButton} onClick={onClose} aria-label="Fechar">
+                ×
               </button>
             </div>
 
-            {/* Bloco 3: Gerador Atômico de Acordos */}
-            <div className="border-t pt-4">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Estruturar Proposta de Acordo</h4>
-              <div className="bg-slate-50 border p-4 rounded-xl flex items-center justify-between mb-2">
-                <span className="text-xs font-medium text-slate-500">Montar parcelas em:</span>
-                <div className="flex items-center gap-1">
-                  <input 
-                    type="number" 
-                    value={installments}
-                    onChange={(e) => setInstallments(Number(e.target.value))}
-                    className="w-12 border rounded-lg p-1 text-center font-bold text-xs bg-white"
-                    min={2} max={12}
-                  />
-                  <span className="text-xs text-slate-500">vezes</span>
-                </div>
+            <div className={styles.section}>
+              <p className={styles.sectionTitle}>Status</p>
+              <div className={styles.stepper}>
+                {MAIN_SEQUENCE.map((status, index) => {
+                  const currentIndex = MAIN_SEQUENCE.indexOf(detail.status);
+                  const reached = currentIndex >= 0 && index <= currentIndex;
+                  return (
+                    <div key={status} style={{ display: 'contents' }}>
+                      <span className={styles.step} data-active={reached}>
+                        <span className={styles.stepDot} />
+                        {STATUS_LABELS[status]}
+                      </span>
+                      {index < MAIN_SEQUENCE.length - 1 && <span className={styles.stepLine} />}
+                    </div>
+                  );
+                })}
               </div>
-              <button 
-                onClick={async () => {
-                  const res = await createPaymentAgreement({
-                    invoiceId: invoice.id,
-                    totalAmount: Number(invoice.amount),
-                    installmentsCount: installments,
-                    firstDueDate: new Date(),
-                    origin: 'ANALYST'
-                  });
-                  if (res.success) alert(`Acordo criado com sucesso em ${installments} parcelas!`);
-                }}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-xs py-2.5 rounded-lg transition-colors shadow-sm"
-              >
-                Gerar Parcelamento de {installments}x
-              </button>
+
+              {(detail.status === 'DISPUTED' || detail.status === 'WRITTEN_OFF') && (
+                <p className={styles.exitStatuses}>
+                  Encerrada fora do fluxo principal: <strong>{STATUS_LABELS[detail.status]}</strong>
+                </p>
+              )}
+
+              <div className={styles.actions}>
+                {VALID_TRANSITIONS[detail.status].map((nextStatus) => (
+                  <button
+                    key={nextStatus}
+                    type="button"
+                    className={styles.actionButton}
+                    data-critical={nextStatus === 'DISPUTED' || nextStatus === 'WRITTEN_OFF'}
+                    disabled={submittingStatus !== null}
+                    onClick={() => handleStatusChange(nextStatus)}
+                  >
+                    {submittingStatus === nextStatus ? 'Atualizando…' : `Mover para ${STATUS_LABELS[nextStatus]}`}
+                  </button>
+                ))}
+                {VALID_TRANSITIONS[detail.status].length === 0 && (
+                  <span className={styles.exitStatuses}>Esta fatura está em um estado final.</span>
+                )}
+              </div>
+
+              {error && <p className={styles.exitStatuses}>{error}</p>}
             </div>
 
-            {/* Bloco 4: Timeline / Linha do tempo estruturada de auditoria */}
-            <div className="border-t pt-4">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Trilha Histórica de Auditoria</h4>
-              <div className="space-y-4 relative before:absolute before:inset-0 before:left-2.5 before:w-0.5 before:bg-slate-100">
-                <div className="flex gap-3 relative">
-                  <div className="h-5 w-5 rounded-full bg-indigo-50 flex items-center justify-center border-2 border-white z-10 mt-0.5">
-                    <div className="h-2 w-2 rounded-full bg-indigo-600"></div>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold text-slate-800">Carga e Enriquecimento Concluídos</p>
-                    <p className="text-[11px] text-slate-400">Sistema • Score de risco {invoice.riskScore}/100 gerado de forma automatizada pelo motor.</p>
-                  </div>
+            <div className={styles.section}>
+              <p className={styles.sectionTitle}>Fatura</p>
+              <dl className={styles.grid}>
+                <div className={styles.field}>
+                  <dt>Valor</dt>
+                  <dd className="tabular">{formatCurrency(detail.amount)}</dd>
                 </div>
+                <div className={styles.field}>
+                  <dt>Pago</dt>
+                  <dd className="tabular">{formatCurrency(detail.amountPaid)}</dd>
+                </div>
+                <div className={styles.field}>
+                  <dt>Emissão</dt>
+                  <dd className="tabular">{formatDate(detail.issueDate)}</dd>
+                </div>
+                <div className={styles.field}>
+                  <dt>Vencimento</dt>
+                  <dd className="tabular">{formatDate(detail.dueDate)}</dd>
+                </div>
+                <div className={styles.field}>
+                  <dt>Forma de pagamento</dt>
+                  <dd>{PAYMENT_METHOD_LABELS[detail.paymentMethod]}</dd>
+                </div>
+                <div className={styles.field}>
+                  <dt>Tentativas de cobrança</dt>
+                  <dd className="tabular">{detail.attempts}</dd>
+                </div>
+                <div className={styles.field}>
+                  <dt>Atrasos anteriores</dt>
+                  <dd className="tabular">{detail.previousLateInvoices}</dd>
+                </div>
+                <div className={styles.field}>
+                  <dt>Score de risco</dt>
+                  <dd className={styles.riskLine}>
+                    <span className="tabular">{detail.riskScore}</span>
+                    <span>({riskBand(detail.riskScore).label})</span>
+                  </dd>
+                </div>
+              </dl>
+            </div>
+
+            <div className={styles.section}>
+              <p className={styles.sectionTitle}>Cliente</p>
+              <dl className={styles.grid}>
+                <div className={styles.field}>
+                  <dt>Segmento</dt>
+                  <dd>{SEGMENT_LABELS[detail.customer.segment]}</dd>
+                </div>
+                <div className={styles.field}>
+                  <dt>Limite de crédito</dt>
+                  <dd className="tabular">{formatCurrency(detail.customer.creditLimit)}</dd>
+                </div>
+                <div className={styles.field}>
+                  <dt>Saldo em aberto</dt>
+                  <dd className="tabular">{formatCurrency(detail.customer.openBalance)}</dd>
+                </div>
+              </dl>
+            </div>
+
+            {detail.paymentAgreement && (
+              <div className={styles.section}>
+                <p className={styles.sectionTitle}>
+                  Acordo de parcelamento · {formatCurrency(detail.paymentAgreement.totalAmount)} em{' '}
+                  {detail.paymentAgreement.installmentsCount}x
+                </p>
+                {detail.paymentAgreement.installments.map((installment) => (
+                  <div key={installment.id} className={styles.installmentRow}>
+                    <span>
+                      Parcela {installment.installmentNumber} · {formatDate(installment.dueDate)}
+                    </span>
+                    <span className="tabular">
+                      {formatCurrency(installment.amount)} · {installment.status === 'PAID' ? 'Paga' : 'Pendente'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {detail.followUps.length > 0 && (
+              <div className={styles.section}>
+                <p className={styles.sectionTitle}>Follow-ups agendados</p>
+                {detail.followUps.map((followUp) => (
+                  <div key={followUp.id} className={styles.followUpRow}>
+                    <span>{followUp.channel}</span>
+                    <span className="tabular">{formatDate(followUp.scheduledFor)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className={styles.section}>
+              <p className={styles.sectionTitle}>Notas internas</p>
+
+              {detail.notes.length > 0 && (
+                <div className={styles.noteList}>
+                  {detail.notes.map((note) => (
+                    <div key={note.id} className={styles.note}>
+                      <p>{note.content}</p>
+                      <div className={styles.noteMeta}>
+                        <span>{note.createdBy === 'AI_AGENT' ? 'Agente IA' : 'Analista'}</span>
+                        <span>{formatDate(note.createdAt)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className={styles.noteForm}>
+                <textarea
+                  placeholder="Registrar uma observação sobre esta fatura…"
+                  value={noteContent}
+                  onChange={(e) => setNoteContent(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className={styles.noteSubmit}
+                  disabled={!noteContent.trim() || submittingNote}
+                  onClick={handleAddNote}
+                >
+                  {submittingNote ? 'Salvando…' : 'Adicionar nota'}
+                </button>
               </div>
             </div>
           </>
         )}
-
-        {/* ABA 2: FEED DO ASSISTENTE DE IA */}
-        {activeTab === 'ai' && (
-          <div className="flex flex-col h-full min-h-[350px] justify-between">
-            <div className="flex-1 space-y-3 mb-4 overflow-y-auto pr-1 text-xs">
-              {messages.map((msg, idx) => (
-                <div key={idx} className={`p-3 rounded-xl max-w-[85%] ${
-                  msg.role === 'user' 
-                    ? 'bg-indigo-600 text-white ml-auto' 
-                    : 'bg-slate-100 text-slate-800 mr-auto border'
-                }`}>
-                  {msg.text}
-                </div>
-              ))}
-              {isAiLoading && (
-                <div className="text-slate-400 text-[11px] font-medium animate-pulse flex items-center gap-1">
-                  <span>✨</span> O Agente está processando a base de dados...
-                </div>
-              )}
-            </div>
-
-            <form onSubmit={handleSendAiMessage} className="flex gap-2 border-t pt-4 bg-white">
-              <input 
-                type="text" 
-                value={inputMessage}
-                onChange={(e) => setInputMessage(e.target.value)}
-                placeholder="Pergunte: 'Escreva uma notificação por e-mail'..."
-                className="flex-1 border rounded-lg px-3 py-2 text-xs bg-slate-50 outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white transition-all"
-              />
-              <button type="submit" className="bg-slate-900 hover:bg-slate-800 text-white font-medium text-xs px-4 py-2 rounded-lg transition-colors">
-                Enviar
-              </button>
-            </form>
-          </div>
-        )}
       </div>
-    </div>
+    </>
   );
 }

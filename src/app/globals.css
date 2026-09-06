@@ -1,1 +1,82 @@
-@import "tailwindcss";
+:root {
+  /* Cor — paleta "livro-razão": papel frio, tinta verde-petróleo, sem cinza-SaaS genérico */
+  --bg: #eff1ee;
+  --surface: #fbfbf9;
+  --ink: #1c2321;
+  --ink-muted: #5b6b63;
+  --ink-faint: #8b978f;
+  --border: #d9dcd4;
+  --border-strong: #b9c0b6;
+
+  --primary: #0e6e5b;
+  --primary-ink: #08423699;
+  --primary-wash: #e2ede9;
+
+  --critical: #ac3a2e;
+  --critical-wash: #f5e5e2;
+  --warning: #a3721f;
+  --warning-wash: #f2e9d8;
+  --positive: #3f7d5c;
+  --positive-wash: #e4ede7;
+
+  --radius-sm: 3px;
+  --radius-md: 6px;
+
+  --font-display: var(--font-fraunces), 'Iowan Old Style', serif;
+  --font-body: var(--font-plex-sans), -apple-system, sans-serif;
+  --font-mono: var(--font-plex-mono), 'SFMono-Regular', monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  margin: 0;
+}
+
+button {
+  font-family: inherit;
+}
+
+table {
+  border-collapse: collapse;
+}
+
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
